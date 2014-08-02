@@ -54,6 +54,7 @@ main(int argc, char *argv[])
 	size_t maxmem = 0;
 	double maxmemfrac = 0.5;
 	double maxtime = 300.0;
+	char * password_file_path = NULL;
 	char ch;
 	char * passwd;
 	int rc;
@@ -77,13 +78,16 @@ main(int argc, char *argv[])
 	argv++;
 
 	/* Parse arguments. */
-	while ((ch = getopt(argc, argv, "hm:M:t:")) != -1) {
+	while ((ch = getopt(argc, argv, "hm:M:p:t:")) != -1) {
 		switch (ch) {
 		case 'M':
 			maxmem = strtoumax(optarg, NULL, 0);
 			break;
 		case 'm':
 			maxmemfrac = strtod(optarg, NULL);
+			break;
+		case 'p':
+			password_file_path = optarg;
 			break;
 		case 't':
 			maxtime = strtod(optarg, NULL);
@@ -114,9 +118,37 @@ main(int argc, char *argv[])
 	}
 
 	/* Prompt for a password. */
-	if (tarsnap_readpass(&passwd, "Please enter passphrase",
-	    dec ? NULL : "Please confirm passphrase", 1))
-		exit(1);
+	if (!password_file_path) {
+		if (tarsnap_readpass(&passwd, "Please enter passphrase",
+		    dec ? NULL : "Please confirm passphrase", 1))
+			exit(1);
+	} else {
+		FILE * password_file = fopen(password_file_path, "r");
+		if (password_file == NULL) {
+			warn("Cannot open password file: %s", password_file_path);
+			exit(1);
+		}
+		passwd = malloc(2048);
+		if (!passwd) {
+			warn("Cannot allocate memory");
+			exit(1);
+		}
+		size_t readlen = fread(passwd, 1, 2047, password_file);
+		if (ferror(password_file)) {
+			warn("Cannot read from password file: %s", password_file_path);
+			exit(1);
+		}
+		if (readlen == 0) {
+			warn("Password file is empty: %s", password_file_path);
+			exit(1);
+		}
+		if (!feof(password_file)) {
+			warn("Password file too large: %s", password_file_path);
+			exit(1);
+		}
+		fclose(password_file);
+		passwd[readlen] = '\0';
+	}
 
 	/* Encrypt or decrypt. */
 	if (dec)
